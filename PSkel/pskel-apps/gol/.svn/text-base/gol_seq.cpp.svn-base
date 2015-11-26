@@ -1,0 +1,146 @@
+#include <omp.h>
+#include <fstream>
+#include <string>
+#include <stdio.h>
+#include <iostream>
+#include <ctime>
+#include <iostream>
+#include <cstdlib>
+#include <stdlib.h>
+
+using namespace std;
+
+void stencilKernel(bool *input, bool *output, int width, int height, int T_MAX){
+	for(int t=0;t<T_MAX;t++){
+		for(int j=0;j<height;j++){
+			for(int i=0;i<width;i++){
+				int neighbors=0;
+				for(int y=-1;y<=1;y++){
+					for(int x=-1;x<=1;x++){
+						int offset = (j+y)*width + (i+x);
+						if( offset >=0 && offset <= width*height && x!=0 && y!= 0){
+							neighbors += input[offset];
+						}
+					}
+				}
+				if(neighbors == 3 || (input[j*width + i]==1 && neighbors == 2)){
+					output[j*width + i] = 1;
+				}
+				else{
+					output[j*width + i] = 0;
+				}
+			}
+		}
+	}
+}
+
+int main(int argc, char **argv){
+	int x_max, y_max,T_MAX,GPUBlockSize, numCPUThreads;
+	float GPUTime;
+	bool *inputGrid, *outputGrid;
+	if (argc != 4){
+		printf ("Wrong number of parameters.\n", argv[0]);
+		printf ("Usage: gol WIDTH HEIGHT ITERATIONS\n");
+		exit (-1);
+	}
+
+	x_max = atoi (argv[1]);
+	y_max = atoi (argv[2]);
+	T_MAX = atoi (argv[3]);
+	
+	inputGrid = (bool*) malloc(x_max*y_max*sizeof(bool));
+	outputGrid = (bool*) malloc(x_max*y_max*sizeof(bool));
+	
+	/*Mask2D<int> mask(8);
+	mask.set(0,-1,1);	mask.set(1,0,1);	mask.set(2,1,1);
+	mask.set(3,-1,0);						mask.set(4,1,0);
+	mask.set(5,-1,-1);	mask.set(6,0,-1);	mask.set(7,1,-1);
+	*/
+	//string inputFile = "input_" + to_string(width) + "_" + to_string(height) +".gol";
+	//string outputFile = "output_" + to_string(atoi(argv[1])) + "_" + to_string(atoi(argv[2])) + "_"+ to_string(atoi(argv[3]))
+	//	                 + "_" + to_string(atof(argv[4])) + "_" + to_string(atoi(argv[5])) +"_"+ to_string(atoi(argv[6])) +".gol";
+	//ofstream ofs (outputFile, ios::out);
+	//ifstream ifs (inputFile, ios::out);
+	//double start,end;
+	//char buffer[1];
+
+	//bool *input = (bool *) malloc (width * height * sizeof(bool));
+	//bool *output = (bool *) malloc (width * height * sizeof(bool));
+
+	//Read Input File
+	srand(123456789);
+	
+	string inputFile = "input_seq.txt"; // << x_max << "_" << y_max << "_" << T_MAX << "_" << GPUTime << "_" << GPUBlockSize <<"_" << numCPUThreads << ".gol";
+	ofstream ifs(inputFile.c_str(), std::ofstream::out);
+	
+	for(int j=0;j<y_max;j++) {
+		for(int i=0;i<x_max;i++) {
+			//ifs.read(buffer,1);
+			inputGrid[j*x_max + i] = rand()%2;
+			ifs<<inputGrid[j*x_max + i];
+		}
+		ifs<<endl;
+		//ifs.read(buffer,1);
+	}
+	//ifs.close();
+	
+	//Set Input File
+	/*for(int j=0;j<height;j++) {
+		for(int i=0;i<width;i++) {
+			input[j*width + i] = rand() % 2;
+			ifs<<input[j*width + i];
+		}
+		ifs<<endl;
+	}
+	*/
+	/*for(int j=0;j<height;j++) {
+		for(int i=0;i<width;i++) {
+			cout<<" "<<input[j*width + i];
+		}
+		cout<<endl;
+	}
+	cout<<endl;
+	*/
+
+	/*Stencil2D<Array2D<int>, Mask2D<int>, int > gol(inputGrid, outputGrid, mask, 0);
+	Runtime<Stencil2D<Array2D<int>, Mask2D<int>, int > > stencilComponent(&gol);
+	stencilComponent.runIterator(T_MAX,GPUTime, GPUBlockSize, numCPUThreads);
+	*/
+	
+	stencilKernel(inputGrid, outputGrid,x_max,y_max,T_MAX);
+	
+	//Write Output To File
+	string outputFile = "output_seq.txt"; // << x_max << "_" << y_max << "_" << T_MAX << "_" << GPUTime << "_" << GPUBlockSize <<"_" << numCPUThreads << ".gol";
+	ofstream ofs(outputFile.c_str(), std::ofstream::out);
+	
+	for(int j=0;j<y_max;j++) {
+		for(int i=0;i<x_max;i++) {
+			//cout<<" "<<output[j*width + i];
+			ofs<<outputGrid[j*x_max + i];
+		}
+		ofs<<endl;
+	}
+	ofs.close();
+	
+	/*cout.precision(6);
+
+	cout<<"INPUT"<<endl;
+	for(int i=0; i<18;i++){
+		for(int j=0; j<18;j++){
+			cout<<inputGrid[j*x_max + i];
+		}
+		cout<<endl;
+	}
+	cout<<endl;
+	
+	cout<<"OUTPUT"<<endl;
+	for(int i=0; i<18;i++){
+		for(int j=0; j<18;j++){
+			cout<<outputGrid[j*x_max + i];
+		}
+		cout<<endl;
+	}
+	cout<<endl;
+	*/
+	return 0;
+}

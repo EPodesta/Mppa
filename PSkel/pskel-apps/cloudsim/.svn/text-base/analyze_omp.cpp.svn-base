@@ -1,0 +1,719 @@
+//============================================================================
+// Name        : analyze.cpp
+// Author      : alisson
+// Version     :
+// Copyright   : Your copyright notice
+// Description : Hello World in C++, Ansi-style
+//============================================================================
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <iostream>
+#include <fstream>
+#include <string>
+#include <vector>
+#include <sstream>
+#include <omp.h>
+#include <cmath>
+#include <sys/stat.h>
+using namespace std;
+
+#define TAM_VETOR_FILENAME  200
+
+
+typedef struct
+{
+	vector<float> time;
+	float average;
+}TimeSimulation;
+
+int ConvertStringToInt(string number)
+{
+	int converted_number;
+	stringstream sss(number);
+	sss >> converted_number;
+
+	return (converted_number);
+}
+
+float ConvertStringTofloat(string number)
+{
+	float converted_number;
+	stringstream sss(number);
+	sss >> converted_number;
+
+	return (converted_number);
+}
+
+float ExtractParameters(string line)
+{
+	int posicao;
+	float paramenter = 0;
+
+	posicao = line.find(":");
+	if (posicao!= string::npos)
+	{
+		line = line.substr(posicao+1, line.size());
+
+		paramenter =  (ConvertStringTofloat(line.substr(posicao+1,line.size())));
+	}
+	return (paramenter);
+}
+
+bool ReadSimulationInfo(char *fileNameSequential, char *fileNameParallel, vector<int> *quantidade_threads, vector <float> *parametros)
+{
+	int posicao;
+	int countLine = 0;
+	bool verify = true;
+	bool read = false;
+	string line;
+	vector<float> parametros_seq;
+	vector<float>::iterator it;
+
+	ifstream filereadParallel(fileNameParallel);
+
+	if(filereadParallel.is_open())
+	{
+		while(!filereadParallel.eof())
+		{
+			getline(filereadParallel, line);
+			posicao = line.find(":");
+			if (posicao!= string::npos)
+			{
+				line = line.substr(posicao+1, line.size());
+				if(countLine == 0)
+				{
+					stringstream stream(line);
+					while( getline(stream, line, ',') )
+						quantidade_threads->push_back(atoi(line.c_str()));
+					countLine++;
+				}
+				else
+				{
+					posicao = line.find("X");
+					if (posicao!= string::npos)
+					{
+						parametros->push_back(ConvertStringTofloat(line.substr(0,posicao+1)));
+						parametros->push_back(ConvertStringTofloat(line.substr(posicao+1,line.size())));
+					}
+					else
+					{
+						parametros->push_back(ConvertStringTofloat(line.substr(posicao+1,line.size())));
+					}
+				}
+			}
+		}
+		filereadParallel.close();
+		read = true;
+	}
+	else
+	{
+		read = false;
+		printf("\n\nArquivo %s nao encontrado !!! ", fileNameParallel);
+	}
+
+	ifstream filereadSequential(fileNameSequential);
+	if(filereadSequential.is_open())
+	{
+		while(!filereadSequential.eof())
+		{
+			getline(filereadSequential, line);
+			posicao = line.find(":");
+			if (posicao!= string::npos)
+			{
+				line = line.substr(posicao+1, line.size());
+				posicao = line.find("X");
+				if (posicao!= string::npos)
+				{
+					parametros_seq.push_back(ConvertStringTofloat(line.substr(0,posicao+1)));
+					parametros_seq.push_back(ConvertStringTofloat(line.substr(posicao+1,line.size())));
+				}
+				else
+				{
+					parametros_seq.push_back(ConvertStringTofloat(line.substr(posicao+1,line.size())));
+				}
+			}
+		}
+		filereadSequential.close();
+		read = true;
+	}
+	else
+	{
+		read = false;
+		printf("\n\nArquivo %s nao encontrado !!! ", fileNameSequential);
+	}
+
+	if(parametros->size() == 0 && parametros_seq.size() !=0)
+	{
+		for (int i = 0; i < parametros_seq.size(); i++) {
+			parametros->push_back(parametros_seq[i]);
+		}
+		parametros_seq.clear();
+	}
+
+	else
+		if(parametros_seq.size() == 0 && parametros->size() == 0)
+	{
+		verify = false;
+	}
+
+	if(parametros_seq.size() != 0 && parametros->size() != 0)
+	{
+		it = parametros->begin();
+		if(parametros_seq[0] != *(it))
+		{
+			verify = false;
+			printf("\nA Temperatura Atmosférica é diferente");
+		}
+		if(parametros_seq[1] != *(it+1))
+		{
+			verify = false;
+			printf("\nA Altura da Nuvem é diferente");
+		}
+		if(parametros_seq[2] != *(it+2))
+		{
+			verify = false;
+			printf("\nO Ponto de Orvalho é diferente");
+		}
+		if(parametros_seq[3] != *(it+3))
+		{
+			verify = false;
+			printf("\nA Pressao Atmosférica é diferente");
+		}
+		if(parametros_seq[4] != *(it+4))
+		{
+			verify = false;
+			printf("\nA Condutividade térmica é diferente");
+		}
+		if(parametros_seq[5] != *(it+5))
+		{
+			verify = false;
+			printf("\nO Delta_T é diferente");
+		}
+		if(parametros_seq[6] != *(it+6))
+		{
+			verify = false;
+			printf("\nNúmero de Iterações são diferentes");
+		}
+		if(parametros_seq[7] != *(it+7) || parametros_seq[8] != *(it+8))
+		{
+			verify = false;
+			printf("\nO Tamanho das matrizes sao diferentes");
+		}
+		if(parametros_seq[9] != *(it+9))
+		{
+			verify = false;
+			printf("\nO Raio da nuvem é diferente");
+		}
+		if(parametros_seq[10] != *(it+10))
+		{
+			verify = false;
+			printf("\nO Número de Processadores sao diferentes");
+		}
+		if(parametros_seq[11] != *(it+11))
+		{
+			verify = false;
+			printf("\nO Delta do Ponto de Orvalho é diferente");
+		}
+		if(parametros_seq[12] != *(it+12))
+		{
+			verify = false;
+			printf("\nO limite inferior ponto do orvalho é diferente");
+		}
+		if(parametros_seq[13] != *(it+13))
+		{
+			verify = false;
+			printf("\nO limite superior ponto do orvalho é diferente");
+		}
+		if(parametros_seq[14] != *(it+14))
+		{
+			verify = false;
+			printf("\nO menu option é diferente");
+		}
+		if(parametros_seq[15] != *(it+15))
+		{
+			verify = false;
+			printf("\nO write step é diferente");
+		}
+	}
+
+	return(verify);
+}
+bool VerifySimulationInfo(char *fileName, vector<float> *parametros)
+{
+	vector<float> parametros_temp;
+	vector<float>::iterator it = parametros->begin();
+	bool verify = true;
+	string line;
+	ifstream fileread(fileName);
+	int posicao;
+
+	if(fileread.is_open())
+	{
+		while(!fileread.eof())
+		{
+			getline(fileread, line);
+			posicao = line.find(":");
+			if (posicao!= string::npos)
+			{
+				line = line.substr(posicao+1, line.size());
+				posicao = line.find("X");
+				if (posicao!= string::npos)
+				{
+					parametros_temp.push_back(ConvertStringTofloat(line.substr(0,posicao+1)));
+					parametros_temp.push_back(ConvertStringTofloat(line.substr(posicao+1,line.size())));
+				}
+				else
+				{
+					parametros_temp.push_back(ConvertStringTofloat(line.substr(posicao+1,line.size())));
+				}
+			}
+		}
+		fileread.close();
+
+		if(parametros->size() == 0)
+		{
+			parametros = &parametros_temp;
+		}
+		else
+		{
+			if(parametros_temp[0] != *(it))
+			{
+				verify = false;
+				printf("\nA Temperatura Atmosférica é diferente");
+			}
+			if(parametros_temp[1] != *(it+1))
+			{
+				verify = false;
+				printf("\nA Altura da Nuvem é diferente");
+			}
+			if(parametros_temp[2] != *(it+2))
+			{
+				verify = false;
+				printf("\nO Ponto de Orvalho é diferente");
+			}
+			if(parametros_temp[3] != *(it+3))
+			{
+				verify = false;
+				printf("\nA Pressao Atmosférica é diferente");
+			}
+			if(parametros_temp[4] != *(it+4))
+			{
+				verify = false;
+				printf("\nO Delta_T é diferente");
+			}
+			if(parametros_temp[5] != *(it+5))
+			{
+				verify = false;
+				printf("\nNúmero de Iterações é diferente");
+			}
+			if(parametros_temp[6] != *(it+6) || parametros_temp[7] != *(it+7))
+			{
+				verify = false;
+				printf("\nO Tamanho das matrizes sao diferentes");
+			}
+			if(parametros_temp[8] != *(it+8))
+			{
+				verify = false;
+				printf("\nO Raio da nuvem é diferentes");
+			}
+			if(parametros_temp[9] != *(it+9))
+			{
+				verify = false;
+				printf("\nO Número de Processadores sao diferentes");
+			}
+		}
+	}
+	else
+	{
+		verify = false;
+		printf("\n\nArquivo %s nao encontrado !!! ", fileName);
+	}
+	return(verify);
+}
+
+void AnalyzeTimeSimulation(vector<int> quantidade_threads, char *dirName, FILE *file)
+{	
+	int posicao;
+	int count_executions = 0;
+	float sum_time = 0;
+	string line;
+	char fileNameSequentialTime[TAM_VETOR_FILENAME] = "sequentialtime-sim.txt";
+	char fileNameParallelTime[TAM_VETOR_FILENAME];
+	int tam_vetor = quantidade_threads.size()+1;
+	int execucoes;
+	TimeSimulation *timeSimulation = new TimeSimulation[tam_vetor];
+	vector<float> time;
+	ifstream fileread;
+
+	fileread.open(fileNameSequentialTime);
+	if(fileread.is_open())
+	{
+		while(!fileread.eof())
+		{
+			getline(fileread, line);
+			posicao = line.find(":");
+			if (posicao!= string::npos)
+			{
+				line = line.substr(posicao+1, line.size());
+				sum_time = sum_time + ConvertStringTofloat(line);
+				count_executions++;
+				time.push_back(ConvertStringTofloat(line));
+			}
+		}
+		timeSimulation[0].time = time;
+		timeSimulation[0].average = sum_time/timeSimulation[0].time.size();
+		execucoes = timeSimulation[0].time.size();
+		sum_time = 0;
+		time.clear();
+		fileread.close();
+	}
+	else
+	{
+		printf("\n\nArquivo %s nao encontrado !!! ", fileNameSequentialTime);
+	}
+
+	if(quantidade_threads.size() > 0)
+	{
+		vector<int>::iterator it_quantidade_threads = quantidade_threads.begin();
+		int count = 1;
+		while(it_quantidade_threads != quantidade_threads.end())
+		{
+			sprintf(fileNameParallelTime, "paralleltime-sim_%d-thread.txt",*it_quantidade_threads);
+			fileread.open(fileNameParallelTime);
+			if(fileread.is_open())
+				{
+					while(!fileread.eof())
+					{
+						getline(fileread, line);
+						posicao = line.find(":");
+						if (posicao!= string::npos)
+						{
+							line = line.substr(posicao+1, line.size());
+							sum_time = sum_time + ConvertStringTofloat(line);
+							count_executions++;
+							time.push_back(ConvertStringTofloat(line));
+						}
+					}
+					timeSimulation[count].time = time;
+					timeSimulation[count].average = sum_time/timeSimulation[count].time.size();
+					sum_time = 0;
+					time.clear();
+					fileread.close();
+				}
+				else
+				{
+					printf("\n\nArquivo %s nao encontrado !!! ", fileNameParallelTime);
+				}
+
+			it_quantidade_threads++;
+			count++;
+		}
+	}
+
+	char filename[TAM_VETOR_FILENAME];
+	sprintf(filename,"%s//sumary-time-simulation.txt",dirName);
+	file = fopen(filename, "w");
+
+	printf("\n\n***Tempo de Simulacao (Tempo em Segundos)***");
+	printf("\n\n\t\tSequencial");
+	fprintf(file,"***Tempo de Simulacao (Tempo em Segundos)***");
+	fprintf(file,"\n\n\t\tSequencial");
+	for(int i = 0; i < quantidade_threads.size(); i++) {
+		printf("\tP.%d-Threads", quantidade_threads[i]);
+		fprintf(file,"\tP.%d-Threads", quantidade_threads[i]);
+	}
+	printf("\n");
+	fprintf(file,"\n");
+	for (int i = 0; i < execucoes; i++) {
+		printf("Execução%d:\t", i+1);
+		fprintf(file,"Execução%d:\t", i+1);
+		for (int j = 0; j < tam_vetor; ++j) {
+			printf("%f\t", timeSimulation[j].time[i]);
+			fprintf(file,"%f\t", timeSimulation[j].time[i]);
+		}
+		printf("\n");
+		fprintf(file,"\n");
+	}
+	printf("Média:\t\t");
+	fprintf(file,"Média:\t\t");
+	for (int i = 0; i < tam_vetor; i++) {
+		printf("%f\t", timeSimulation[i].average);
+		fprintf(file,"%f\t", timeSimulation[i].average);
+	}
+	printf("\n\n");
+
+	fclose(file);
+}
+
+float CalculateAverageTemperature(ifstream *fileread, int totalElemnts)
+{
+	float sum = 0;
+	float average = 0;
+	int count_line = 0;
+	string line;
+
+	while(!fileread->eof())
+	{
+		getline(*fileread, line);
+		if(count_line > 0)
+		{
+			stringstream stream(line);
+			while( getline(stream, line, ' ') )
+			sum += ConvertStringTofloat(line.c_str());
+		}
+		count_line++;
+	}
+	average = sum/(totalElemnts);
+
+	return(average);
+}
+
+float CompareTemperature(ifstream *filereadSequential, ifstream *filereadParallel, int iteracao, int numThread, vector<string> *compare_error)
+{
+	float result=0;
+	int linecount = 0;
+	char error[TAM_VETOR_FILENAME];
+	string lineSequential;
+	string lineParallel;
+
+	while(!filereadSequential->eof() && !filereadParallel->eof())
+	{
+		getline(*filereadSequential, lineSequential);
+		getline(*filereadParallel, lineParallel);
+		
+		int compare = lineSequential.compare(lineParallel);
+		if(compare != 0)
+		{			
+			sprintf(error, "Iteração %d, Linha %d diferente entre matrizes: sequencial e paralela %d threads\n",iteracao, linecount, numThread);
+			compare_error->push_back(error);
+		}
+		linecount++;
+	}
+	return (result);
+}
+
+void AnalyzeTemperatureSimulation(int totalElements, int iterations, vector<int> quantidade_threads, int write_step, char *dirName, FILE *file)
+{	
+	vector< vector<float> > average_all;
+	vector<float> average;
+	vector<string> compare_error;	
+	string line;
+	char fileName[TAM_VETOR_FILENAME];
+	char fileNameSequential[TAM_VETOR_FILENAME];
+	char fileNameParallel[TAM_VETOR_FILENAME];
+	ifstream fileread;
+	ifstream filereadSequential;
+	ifstream filereadParallel;
+	
+	//if(write_step > 1)
+		//write_step = write_step-1;
+
+
+	if(quantidade_threads.size() > 0)
+	{
+		for (int i = 0; i < iterations; i+=write_step)		
+		{
+			sprintf(fileNameSequential, "matrizes_temp//sequential-temp_iteration#_%d.txt", i);
+			filereadSequential.open(fileNameSequential);
+
+			for (int j = 0; j < quantidade_threads.size(); j++)
+			{
+				sprintf(fileNameParallel, "matrizes_temp//parallel-temp_%d-thread_iteration#_%d.txt",quantidade_threads[j], i);
+				filereadParallel.open(fileNameParallel);
+
+				if(filereadSequential.is_open() && filereadParallel.is_open())
+				{
+					CompareTemperature(&filereadSequential, &filereadParallel, i, quantidade_threads[j], &compare_error);
+					filereadParallel.close();
+				}
+				/*else
+				{
+					printf("\n\nArquivo %s e/ou %s nao encontrado(s) !!! ", fileNameSequential, fileNameParallel);
+				}*/
+			}
+		}
+	}
+
+	char filename[TAM_VETOR_FILENAME];
+	if (quantidade_threads.size() > 0)
+	{
+		sprintf(filename,"%s//compare_error-temperature-simulation.txt",dirName);
+		file = fopen(filename, "w");
+		fprintf(file, "***Comparação entre a matrizes sequencial e paralelas ***");
+		fprintf(file,"\n\n");
+
+		if(compare_error.size() != 0)
+		{
+			vector<string>::iterator it;
+			string error;
+			printf("\n\n");
+			for (it = compare_error.begin(); it < compare_error.end(); it ++) {
+				error = *it;
+				printf("%s", error.c_str());
+				fprintf(file,"%s", error.c_str());
+			}
+			printf("\n\n");			
+		}
+		else
+		{
+			printf("\n\nTodas as matrizes são iguais\n\n");
+			fprintf(file,"\n\nTodas as matrizes são iguais\n\n");
+		}
+		filereadSequential.close();
+		fclose(file);
+	}
+
+
+	for (int i = 0; i < iterations; i+=write_step)	
+	{
+		sprintf(fileName, "matrizes_temp//sequential-temp_iteration#_%d.txt", i);
+		fileread.open(fileName);
+
+		if(fileread.is_open())
+		{
+			average.push_back(CalculateAverageTemperature(&fileread, totalElements));			
+		}
+		else
+		{
+			printf("\n\nArquivo %s nao encontrado !!! ", fileName);
+		}
+		fileread.close();
+	}
+	average_all.push_back(average);
+	average.clear();
+
+	for (int i = 0; i < quantidade_threads.size(); i++)
+	{
+		for (int j = 0; j < iterations; j+=write_step)		
+		{
+			sprintf(fileName, "matrizes_temp//parallel-temp_%d-thread_iteration#_%d.txt",quantidade_threads[i], j);
+			fileread.open(fileName);
+
+			if(fileread.is_open())
+			{
+				average.push_back(CalculateAverageTemperature(&fileread, totalElements));				
+			}
+			else
+			{
+				printf("\n\nArquivo %s nao encontrado !!! ", fileName);
+			}
+			fileread.close();
+		}
+		average_all.push_back(average);
+		average.clear();
+	}
+
+	//char filename[100];
+	sprintf(filename,"%s//average-temperature-simulation.txt",dirName);
+	file = fopen(filename, "w");
+
+	printf("\n***Média da Temperatura de cada iteração***");
+	printf("\n\nSequencial");
+	fprintf(file, "***Média da Temperatura de cada iteração***");
+	fprintf(file, "\n\nSequencial");
+	for(int i = 0; i < quantidade_threads.size(); i++) {
+		printf("\tP.%d-Threads", quantidade_threads[i]);
+		fprintf(file, "\tP.%d-Threads", quantidade_threads[i]);
+	}
+	printf("\n");
+	fprintf(file, "\n");
+	for (int i = 0; i < average_all[0].size(); i++) {		
+		for (int j = 0; j < average_all.size(); ++j) {
+			printf("%f\t", average_all[j][i]);
+			fprintf(file, "%f\t", average_all[j][i]);
+		}
+		printf("\n");
+		fprintf(file, "\n");
+		}
+	fclose(file);
+}
+
+void PrintSimulationInfo(float temperaturaAtmosferica, float alturaNuvem, float pontoOrvalho, float pressaoAtmosferica, float deltaT, int numero_iteracoes, int num_cores, int linha, int coluna, int raio_nuvem, float condutividadeTermica, float proporcaoGPU, float proporcaoCPU, vector<int> quantidade_threads)
+{
+	printf("\n------------------------------------");
+	printf("\n\t   Parametros");
+	printf("\n------------------------------------");
+	printf("\nTemperatura Atmosférica: %.1f graus celsius", temperaturaAtmosferica);
+	printf("\nAltura da Nuvem: %.1f KM", alturaNuvem);
+	printf("\nPonto de Orvalho: %f graus celsius", pontoOrvalho);
+	printf("\nPressao: %.1f hPa", pressaoAtmosferica);
+	printf("\nCondutividade Termica: %f", condutividadeTermica);
+	printf("\nDelta_T: %f", deltaT);
+	printf("\nNumero de Iteracoes: %d", numero_iteracoes);
+	printf("\nTamanho da Grid: %dx%d", linha, coluna);
+	printf("\nRaio da nuvem: %d", raio_nuvem);
+	printf("\nNumero de nucleos do Computador: %d", num_cores);
+	if(quantidade_threads.size() > 0)
+	{
+		printf("\nNúmero de threads: ");
+		for(int i= 0; i < quantidade_threads.size(); i++)
+		{
+			printf("%d", quantidade_threads[i]);
+			if(quantidade_threads.size() -i != 1)
+				printf(",");
+		}
+		printf("\nProporção de GPU: %.0f%%", proporcaoGPU);
+		printf("\nProporção de CPU: %.0f%%", proporcaoCPU);	
+	}
+	printf("\n------------------------------------\n");
+}
+
+int main() {
+
+	float proporcaoGPU, proporcaoCPU, temperaturaAtmosferica, alturaNuvem, pontoOrvalho, pressaoAtmosferica, condutividadeTermica, deltaT;
+	int numero_iteracoes, linha, coluna, raio_nuvem, num_cores, count_num_execucoes, count_quantidade_threads, menu_option, write_step;
+	char nome_sequential_matriz[300] = "sequential-simulationinfo.txt";
+	char nome_parallel_matriz[300] = "parallel-simulationinfo.txt";
+	vector<int> quantidade_threads;
+	vector<float> parametros;
+	
+	if(ReadSimulationInfo(nome_sequential_matriz, nome_parallel_matriz, &quantidade_threads, &parametros))
+	{			
+		temperaturaAtmosferica = parametros[0];
+		alturaNuvem = parametros[1];
+		pontoOrvalho = parametros[2];
+		pressaoAtmosferica = parametros[3];
+		condutividadeTermica = parametros[4];
+		deltaT = parametros[5];
+		numero_iteracoes = ceil(parametros[6]);
+		linha = ceil(parametros[7]);
+		coluna = ceil(parametros[8]);
+		raio_nuvem = ceil(parametros[9]);
+		num_cores = ceil(parametros[10]);				
+		menu_option = ceil(parametros[14]);
+		write_step = ceil(parametros[15]);			
+		count_num_execucoes = 0;
+		count_quantidade_threads = 0;
+
+		char tempoSequencial[300];
+		char tempoParalelo[300];
+		char iteracoesSequentialSim[300];
+		char iteracoesParalellSim[300];
+		char dirname[300];
+		FILE *file;
+
+		PrintSimulationInfo(temperaturaAtmosferica, alturaNuvem, pontoOrvalho, pressaoAtmosferica, deltaT, numero_iteracoes, num_cores, linha, coluna, raio_nuvem, condutividadeTermica, proporcaoGPU, proporcaoCPU, quantidade_threads);			
+
+		/* Criar diretório para escrever arquivos da análise da simulação */
+		sprintf(dirname,"summary-analyze_matriz-%dx%d", linha, coluna);
+		mkdir(dirname, S_IRWXU|S_IRGRP|S_IXGRP);
+
+		switch(menu_option)
+		{
+		case 0:
+			AnalyzeTimeSimulation(quantidade_threads, dirname, file);				
+			break;
+		case 1:
+			AnalyzeTimeSimulation(quantidade_threads, dirname, file);
+			AnalyzeTemperatureSimulation(linha*coluna, numero_iteracoes, quantidade_threads, write_step, dirname, file);			
+			break;
+		}		
+	}
+	else
+	{		
+		printf("\n\nPrograma não executou");
+	}
+
+	return 0;
+}

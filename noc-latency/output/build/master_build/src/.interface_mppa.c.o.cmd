@@ -1,0 +1,1 @@
+cmd_output/build/master_build/src/interface_mppa.c.o := /usr/local/k1tools/bin/k1-gcc -Wp,-MD,output/build/master_build/src/.interface_mppa.c.o.d -Wp,-MT,output/build/master_build/src/interface_mppa.c.o -mcore=k1io -mboard=developer     -mos=rtems   -c -o output/build/master_build/src/interface_mppa.c.o src/interface_mppa.c

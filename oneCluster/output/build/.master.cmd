@@ -1,0 +1,1 @@
+cmd_output/build/master := /usr/local/k1tools/bin/k1-g++ -o output/build/master   output/build/master_build/main.cpp.o   -mcore=k1io -mboard=developer -L/home/podesta/littleTest/oneCluster/output/lib/io/  -lmppaipc -lmppaipc   -mos=rtems 

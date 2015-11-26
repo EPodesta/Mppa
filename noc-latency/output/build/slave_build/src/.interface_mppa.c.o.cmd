@@ -1,0 +1,1 @@
+cmd_output/build/slave_build/src/interface_mppa.c.o := /usr/local/k1tools/bin/k1-gcc -Wp,-MD,output/build/slave_build/src/.interface_mppa.c.o.d -Wp,-MT,output/build/slave_build/src/interface_mppa.c.o -mcore=k1dp -mboard=developer     -mos=nodeos   -c -o output/build/slave_build/src/interface_mppa.c.o src/interface_mppa.c

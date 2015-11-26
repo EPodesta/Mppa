@@ -1,0 +1,47 @@
+CC 				=  g++
+CUDAC 			= nvcc
+OPTIMUS         = optirun #remover este valor se não estiver em um sistema OPTIMUS (notebook)
+CUDA_LIB_PATH   = /usr/local/cuda-5.5/lib64
+CUDAFLAGS = --compiler-bindir /usr/bin/gcc-4.4.7 -O3 -Xcompiler -ftree-vectorize -Xcompiler -msse4 #-I/usr/local/cuda-5.5/extras/CUPTI/include -ccbin g++  -Xcompiler -Wall
+#CUDAFLAGS       = -O3 -arch=sm_21 -m64 -Xcompiler -ftree-vectorize -Xcompiler -msse4 #-I/usr/local/cuda-5.5/extras/CUPTI/include -ccbin g++  -Xcompiler -Wall
+CXXFLAGS		= -O3 -w
+GENCODE			= -gencode arch=compute_20,code=sm_20 -gencode arch=compute_30,code=sm_30 -gencode arch=compute_35,code=\"sm_35,compute_35\"
+OMP_TBB         = -fopenmp -lgomp -ltbb
+LIBS			= -Xcompiler -fopenmp -lgomp -ltbb -lcuda -I../../lib/ -L../../lib/ga -lga -lm #-L /usr/local/cuda-5.5/extras/CUPTI/lib -L /usr/local/cuda-5.5/extras/CUPTI/lib64 -lcupti
+SRC_NAME        = laplacian
+SEQ_SRC_NAME    = laplacian_seq
+BIN_DIR         = ./
+
+all: clean pskel
+
+seq:  	${SEQ_SRC_NAME}.cpp
+	#${CUDAC} ${CXXFLAGS} ${SEQ_SRC_NAME}.cpp -o ${BIN_DIR}${SEQ_SRC_NAME} -Xcompiler ${OMP_TBB}
+	${CUDAC} ${CUDAFLAGS} -o ${BIN_DIR}${SEQ_SRC_NAME} ${SEQ_SRC_NAME}.cpp -Xcompiler ${OMP_TBB}
+
+pskel:  ${SRC_NAME}.cu
+	${CUDAC} ${CUDAFLAGS} -o ${BIN_DIR}${SRC_NAME} ${SRC_NAME}.cu ${LIBS}
+	
+papi:  ${SRC_NAME}.cu
+	${CUDAC} ${CUDAFLAGS} -o ${BIN_DIR}${SRC_NAME} ${SRC_NAME}.cu ${LIBS} -DPAPI -DTIME
+	
+cupti:  ${SRC_NAME}.cu
+	${CUDAC} ${CUDAFLAGS} -o ${BIN_DIR}${SRC_NAME} ${SRC_NAME}.cu ${LIBS} -DCUPTI
+
+time:  ${SRC_NAME}.cu
+	${CUDAC} ${CUDAFLAGS} -o ${BIN_DIR}${SRC_NAME} ${SRC_NAME}.cu ${LIBS} -DTIME
+	
+pskelold: ${SRC_NAME}.cu
+	${CUDAC} ${CUDAFLAGS} ${GENCODE} -o ${SRC_NAME}.o -c ${SRC_NAME}.cu
+	${CUDAC} ${CUDAFLAGS} -o ${BIN_DIR}${SRC_NAME} ${SRC_NAME}.o ${LIBS} -Ilibcutil
+
+testseq:
+	time -p ${BIN_DIR}${SEQ_SRC_NAME} 480 480 480 1
+	
+testpskel:
+	time -p ${BIN_DIR}${SRC_NAME} 5000 5000 5000 1 1.0 32 8 0
+
+testoptimus:
+	time -p ${OPTIMUS} ${BIN_DIR}${SRC_NAME} 480 480 480 1 1.0 32 8 0
+	
+clean:
+	 rm -f *.o ${BIN_DIR}${SRC_NAME} ${BIN_DIR}${SEQ_SRC_NAME}

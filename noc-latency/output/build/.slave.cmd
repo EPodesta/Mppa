@@ -1,0 +1,1 @@
+cmd_output/build/slave := /usr/local/k1tools/bin/k1-gcc -o output/build/slave  output/build/slave_build/src/slave.c.o output/build/slave_build/src/interface_mppa.c.o output/build/slave_build/src/common.c.o    -mcore=k1dp -mboard=developer -L/home/podesta/noc-latency/output/lib/cluster/  -lmppaipc -lmppaipc  -mos=nodeos 

@@ -1,0 +1,114 @@
+#define PSKEL_LOGMODE 1
+#include "../../include/PSkel.h"
+#include <stdio.h>
+#include <omp.h>
+#include <iostream>
+#include <string>
+#include <sstream>
+#include <fstream>
+
+using namespace std;
+using namespace PSkel;
+
+struct Arguments{
+	float alpha, beta;
+};
+
+namespace PSkel{
+	__stencil__ void stencilKernel(Array3D<float> input,Array3D<float> output,Mask3D<float> mask,Arguments args,int i, int j, int k){
+								   
+		output(i,j,k) = args.alpha * input(i,j,k) +
+						args.beta * (mask.get(0,input,i,j,k) + mask.get(1,input,i,j,k) + 
+									 mask.get(2,input,i,j,k) + mask.get(3,input,i,j,k) + 
+									 mask.get(4,input,i,j,k) + mask.get(5,input,i,j,k) );
+	}
+}
+
+int main(int argc, char **argv){
+	int x_max, y_max, z_max, x, y, z,T_MAX, GPUBlockSize, numCPUThreads;
+	float GPUTime;
+
+	if (argc != 9){
+		printf ("Wrong number of parameters.\n", argv[0]);
+		printf ("Usage: laplacian WIDTH HEIGHT DEPTH ITERATIONS GPUTIME GPUBLOCKS CPUTHREADS OUTPUT_WRITE_FLAG\n");
+		exit (-1);
+	}
+
+	x_max = atoi (argv[1]);
+	y_max = atoi (argv[2]);
+	z_max = atoi (argv[3]);
+	T_MAX=atoi(argv[4]);
+	GPUTime = atof(argv[5]);
+	GPUBlockSize = atoi(argv[6]);
+	numCPUThreads = atoi(argv[7]);
+	int writeToFile = atoi(argv[8]);
+	
+	Array3D<float> inputGrid(x_max, y_max, z_max);
+	Array3D<float> outputGrid(x_max, y_max, z_max);
+	Mask3D<float> mask(6);
+	
+	mask.set(0,1,0,0);
+	mask.set(1,-1,0,0);
+	mask.set(2,0,1,0);
+	mask.set(3,0,-1,0);
+	mask.set(4,0,0,1);
+	mask.set(5,0,0,-1);
+
+	Arguments args;
+	args.alpha = 1.f / (float) x_max;
+	args.beta = 2.f / (float) y_max;
+	
+	omp_set_num_threads(numCPUThreads);
+
+	/* initialize the first timesteps */
+	#pragma omp parallel for private (z,y,x)
+    for (z = 0; z < z_max; z++){
+		for (y = 0; y < y_max; y++){		
+			for (x = 0; x < x_max; x++){
+				inputGrid(x,y,z) = 1.0 + x*0.1 + y*0.01 + z*0.001;
+			}
+		}
+	}
+	
+	
+	Stencil3D<Array3D<float>, Mask3D<float>, Arguments> lap(inputGrid, outputGrid, mask, args);
+	Runtime< Stencil3D<Array3D<float>, Mask3D<float>, Arguments> > stencilComponent(&lap);
+
+	stencilComponent.runIterator(T_MAX,GPUTime, GPUBlockSize, numCPUThreads);	
+	
+	if(writeToFile == 1){
+		stringstream outputFile;
+		outputFile << "output_" <<x_max << "_" << y_max << "_" << z_max << "_" << T_MAX << "_" << GPUTime << "_" << GPUBlockSize <<"_" << numCPUThreads << ".txt";
+		string out = outputFile.str();
+		
+		ofstream ofs(out.c_str(), std::ofstream::out);
+		
+		ofs.precision(6);
+		
+		for (z = 1; z < z_max-1; z++){
+			for (y = 1; y < y_max-1; y++){		
+				for (x = 1; x < x_max-1; x++){
+					ofs<<outputGrid(x,y,z)<<" ";
+				}
+				ofs<<endl;
+			}
+			ofs<<endl;
+		}
+		
+		/*
+		cout.precision(6);
+		cout<<"INPUT"<<endl;
+		for(int i=10; i<z_max/2;i+=10){
+			cout<<"("<<i<<","<<i<<","<<i<<") = "<<inputGrid(i,i,i)<<"\t\t("<<x_max-i<<","<<y_max-i<<","<<z_max-i<<") = "<<inputGrid(x_max-i,y_max-i,z_max-i)<<endl;
+		}
+		cout<<endl;
+		
+		cout<<"OUTPUT"<<endl;
+		for(int i=10; i<z_max/2;i+=10){
+			cout<<"("<<i<<","<<i<<","<<i<<") = "<<outputGrid(i,i,i)<<"\t\t("<<x_max-i<<","<<y_max-i<<","<<z_max-i<<") = "<<outputGrid(x_max-i,y_max-i,z_max-i)<<endl;
+		}
+		cout<<endl;
+		*/
+	}
+	return 0;	
+}

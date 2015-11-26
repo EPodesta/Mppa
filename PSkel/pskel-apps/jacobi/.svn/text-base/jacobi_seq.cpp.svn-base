@@ -1,0 +1,89 @@
+#include <iostream>
+#include <omp.h>
+#include <stdlib.h>
+#include <stdio.h>
+
+#define IDX(i,j) ((i) * x_max + (j))
+
+using namespace std;
+
+int main(int argc, char** argv)
+{
+	int x_max, y_max;
+	int i, j, t;
+    int x, y;
+    double t1, t2, nFlops;
+    
+    float* input;
+    float* output;
+	float* tmp;
+	float alpha, beta;
+
+	const int T_MAX = atoi(argv[3]);
+	
+	if (argc != 4)
+	{
+		printf ("Wrong number of parameters.\n", argv[0]);
+		printf ("Usage: jacobi_seq WIDTH HEIGHT ITERATIONS\n");
+		exit (-1);
+	}
+	
+	x_max = atoi(argv[1]);
+	y_max = atoi(argv[2]);
+	
+	 /* allocate memory */
+	input = (float*) malloc (x_max * y_max * sizeof (float));
+    output = (float*) malloc (x_max * y_max * sizeof (float));
+    
+    alpha = 0,25; // / (float) x_max;
+    beta = 1; // / (float) y_max;
+    
+     /* initialize the first timesteps */
+	#pragma omp parallel for private (j,i)
+    for (j = 0; j < y_max; j++)
+	{
+		for (i = 0; i < x_max; i++)
+		{
+	       	input[IDX(i,j)] = 1. + i*0.1 + j*0.01;
+	       	output[IDX(i,j)] = 0;
+		}
+	}
+	
+	/* do the calculation */ 
+	t1 = omp_get_wtime();
+	for (t = 0; t < T_MAX; t++)
+	{
+		#pragma omp parallel for private(y,x)
+		for (y = 1; y < y_max - 1; y++)
+     	{
+    		for (x = 1; x < x_max - 1; x++)
+    		{
+                output[IDX(x,y)] = alpha * input[IDX(x,y)] +
+                beta * (
+                        input[IDX(x+1,y)] + input[IDX(x-1,y)] +
+                        input[IDX(x,y+1)] + input[IDX(x,y-1)]                        
+                       ) - 4 * beta * beta;
+    		}
+    	}    
+
+    	tmp = input;
+    	input = output;
+    	output = tmp;
+	}
+	
+	output = input;
+	input = tmp;
+	
+	t2 = omp_get_wtime();
+   	
+	cout.precision(6);
+	
+	printf ("Time spent in stencil code: %f\n", t2 - t1);
+	
+	/* clean up */
+	free (input);
+	free (output);
+	
+	return EXIT_SUCCESS;
+		
+}

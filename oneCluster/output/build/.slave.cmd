@@ -1,0 +1,1 @@
+cmd_output/build/slave := /usr/local/k1tools/bin/k1-g++ -o output/build/slave   output/build/slave_build/applicationFur.cpp.o   -mcore=k1dp -mboard=developer -L/home/podesta/littleTest/oneCluster/output/lib/cluster/  -lmppaipc -lmppaipc  -mos=nodeos -fopenmp -lgomp -lm -I../../lib/

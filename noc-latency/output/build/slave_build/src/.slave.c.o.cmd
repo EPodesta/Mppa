@@ -1,0 +1,1 @@
+cmd_output/build/slave_build/src/slave.c.o := /usr/local/k1tools/bin/k1-gcc -Wp,-MD,output/build/slave_build/src/.slave.c.o.d -Wp,-MT,output/build/slave_build/src/slave.c.o -mcore=k1dp -mboard=developer     -mos=nodeos   -c -o output/build/slave_build/src/slave.c.o src/slave.c

@@ -1,0 +1,107 @@
+#include "../include/PSkel.h" //old pskel
+//#include "../../../include/PSkel.h" //new pskel
+#include <stdio.h>
+#include <omp.h>
+#include <iostream>
+
+using namespace std;
+using namespace PSkel;
+
+struct Cloud{
+	float alpha, beta;
+	Args2D<float> val;
+	
+	Cloud(){};
+	
+	Cloud(int width, int height){
+		new (&val) Args2D<float>(width, height);
+	}
+};
+
+namespace PSkel{
+	__stencil__ void stencilKernel(Array2D<float> input,
+								   Array2D<float> output,
+								   Mask2D<float> mask,
+								   Cloud cloud,
+								   int i, int j){
+								   
+		if( i >= 1 && i < (input.getWidth()-1) && j >=1 && j < (input.getHeight()-1)){
+				output(i,j) = cloud.alpha * input(i,j) +
+							  cloud.beta * (mask.get(0,input,i,j) + mask.get(1,input,i,j)) +
+							  cloud.val(i,j) * (mask.get(2,input,i,j) + mask.get(3,input,i,j) );
+		}
+			
+	}
+}
+
+int main(int argc, char **argv){
+	int x_max, y_max, x, y,T_MAX, GPUBlockSize, numCPUThreads;
+	double t1, t2,nFlops;
+	float GPUTime;
+
+	if (argc != 7){
+		printf ("Wrong number of parameters.\n", argv[0]);
+		printf ("Usage: cloudsim WIDTH HEIGHT ITERATIONS GPUTIME GPUBLOCKS CPUTHREADS\n");
+		exit (-1);
+	}
+
+	x_max = atoi (argv[1]);
+	y_max = atoi (argv[2]);
+	T_MAX=atoi(argv[3]);
+	GPUTime = atof(argv[4]);
+	GPUBlockSize = atoi(argv[5]);
+	numCPUThreads = atoi(argv[6]);
+	
+	Array2D<float> inputGrid(x_max, y_max);
+	Array2D<float> outputGrid(x_max, y_max);
+	Mask2D<float> mask(4);
+	
+	mask.set(0,0,1);
+	mask.set(1,1,0);
+	mask.set(2,0,-1);
+	mask.set(3,-1,-1);
+	
+	Cloud cloud(x_max,y_max);
+	cloud.alpha = 1.f / (float) x_max;
+	cloud.beta = 2.f / (float) y_max;
+	
+	omp_set_num_threads(numCPUThreads);
+
+	/* initialize the first timesteps */
+	#pragma omp parallel for private (x,y)
+	for (y = 0; y < y_max; y++){		
+		for (x = 0; x < x_max; x++){
+			inputGrid(x,y) = 1.0 + x*0.1 + y*0.01;
+			cloud.val(x,y) = x*0.6/y*0.2;
+		}
+	}
+	
+	Stencil2D<Array2D<float>, Mask2D<float>, Cloud> stencilCloud(inputGrid, outputGrid, mask, cloud);
+	Runtime< Stencil2D<Array2D<float>, Mask2D<float>, Cloud> > runStencil(&stencilCloud);
+
+	//t1 = omp_get_wtime();
+	double d1 = omp_get_wtime();
+	
+	runStencil.runIterator(T_MAX,GPUTime, GPUBlockSize, numCPUThreads);	
+	
+	double d2 = omp_get_wtime();
+	
+	cout.precision(6);
+
+	cout<<"INPUT"<<endl;
+	for(int i=10; i<y_max/2;i+=10){
+		cout<<"("<<i<<","<<i<<") = "<<inputGrid(i,i)<<"\t\t("<<x_max-i<<","<<y_max-i<<") = "<<inputGrid(x_max-i,y_max-i)<<endl;
+	}
+	cout<<endl;
+	
+	cout<<"OUTPUT"<<endl;
+	for(int i=10; i<y_max/2;i+=10){
+		cout<<"("<<i<<","<<i<<") = "<<outputGrid(i,i)<<"\t\t("<<x_max-i<<","<<y_max-i<<") = "<<outputGrid(x_max-i,y_max-i)<<endl;
+	}
+	cout<<endl;
+	
+	cout<<"Tempo Processamento: "<<d2-d1<<endl;
+	
+	return 0;	
+}
+

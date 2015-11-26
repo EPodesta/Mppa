@@ -1,0 +1,1 @@
+cmd_output/build/master := /usr/local/k1tools/bin/k1-gcc -o output/build/master  output/build/master_build/src/master.c.o output/build/master_build/src/interface_mppa.c.o output/build/master_build/src/common.c.o    -mcore=k1io -mboard=developer -L/home/podesta/noc-latency/output/lib/io/  -lmppaipc -lmppaipc   -mos=rtems 

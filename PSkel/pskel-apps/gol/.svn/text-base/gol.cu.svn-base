@@ -1,0 +1,194 @@
+//#define PSKEL_LOGMODE 1
+//#define TBB_USE_DEBUG 1
+#include <omp.h>
+#include <fstream>
+#include <string>
+#include <stdio.h>
+#include <iostream>
+#include <sstream>
+
+#include <unistd.h>
+
+#include <cassert>
+
+//#define PSKEL_SHARED_MASK
+#include "../../include/PSkel.h"
+
+#include "hr_time.h"
+#include "util.h"
+
+using namespace std;
+using namespace PSkel;
+
+namespace PSkel{
+	__parallel__ void stencilKernel(Array2D<int> input,Array2D<int> output,Mask2D<int> mask,int null, size_t h, size_t w){
+		int neighbors=0;
+		for(int z=0;z<mask.size;z++){
+			neighbors += mask.get(z,input,h,w);
+		}	
+		
+		if(neighbors == 3 || (input(h,w) == 1 && neighbors == 2)){
+			output(h,w) = 1;
+		}
+		else{
+			output(h,w) = 0;
+		}
+	}
+}
+
+int main(int argc, char **argv){
+	int x_max, y_max,iterations,GPUBlockSize, numCPUThreads,writeToFile;
+	float GPUTime;
+	if (argc != 8){
+		printf ("Wrong number of parameters.\n", argv[0]);
+		printf ("Usage: gol WIDTH HEIGHT ITERATIONS GPUTIME GPUBLOCKS CPUTHREADS OUTPUT_WRITE_FLAG\n");
+		exit (-1);
+	}
+
+	x_max = atoi (argv[1]);
+	y_max = atoi (argv[2]);
+	iterations = atoi (argv[3]);
+	GPUTime = atof(argv[4]);
+	GPUBlockSize = atoi(argv[5]);
+	numCPUThreads = atoi(argv[6]);
+	writeToFile = atoi(argv[7]);
+	
+	//GPUBlockSize=;
+	//x_max = 1000;
+	//y_max = 20;
+	Array2D<int> inputGrid(x_max, y_max);
+	Array2D<int> outputGrid(x_max, y_max);
+	Array2D<int> tmpGrid;
+	//Array2D<int> inCpyGrid;
+	
+	Mask2D<int> mask(8);
+	mask.set(0,-1,-1);	mask.set(1,-1,0);	mask.set(2,-1,1);
+	mask.set(3,0,-1);				mask.set(4,0,1);
+	mask.set(5,1,-1);	mask.set(6,1,0);	mask.set(7,1,1);
+	
+	//string inputFile = "input_" + to_string(width) + "_" + to_string(height) +".gol";
+	//string outputFile = "output_" + to_string(atoi(argv[1])) + "_" + to_string(atoi(argv[2])) + "_"+ to_string(atoi(argv[3]))
+	//	                 + "_" + to_string(atof(argv[4])) + "_" + to_string(atoi(argv[5])) +"_"+ to_string(atoi(argv[6])) +".gol";
+	//ofstream ofs (outputFile, ios::out);
+	//ifstream ifs (inputFile, ios::out);
+	//double start,end;
+	//char buffer[1];
+
+	//bool *input = (bool *) malloc (width * height * sizeof(bool));
+	//bool *output = (bool *) malloc (width * height * sizeof(bool));
+
+	//Read Input File
+	srand(123456789);
+	
+	/*stringstream inputFile;
+	inputFile << "input_" <<x_max << "_" << y_max << "_" << T_MAX << "_" << GPUTime << "_" << GPUBlockSize <<"_" << numCPUThreads << ".gol";
+	string in = inputFile.str();
+	ofstream ifs(in.c_str(), std::ofstream::out);
+	*/
+	
+	for(int j=0;j<y_max;j++) {
+		for(int i=0;i<x_max;i++) {
+			inputGrid(i,j) = rand()%2;
+			//ifs<<inputGrid(i,j);
+		}
+		//ifs<<endl;
+		//ifs.read(buffer,1);
+	}
+	
+	Stencil2D<Array2D<int>, Mask2D<int>, int> stencil(inputGrid, outputGrid, mask, 0);
+	hr_timer_t timer;
+        cout << "Computing Stencil" << endl;
+	/*
+	//double d1 = omp_get_wtime();
+	hrt_start(&timer);
+	stencil.runIterativeCPU(iterations, numCPUThreads);
+	hrt_stop(&timer);
+	cout << hrt_elapsed_time(&timer) << endl;
+	tmpGrid.hostClone(outputGrid);
+	for(int j=0;j<y_max;j++) {
+		for(int i=0;i<x_max;i++) {
+			outputGrid(i,j) = 0;
+		}
+	}
+	*/
+	hrt_start(&timer);
+	//stencil.runIterativeCPU(iterations, numCPUThreads);	
+	//stencil.runIterativeGPU(iterations, GPUBlockSize);	
+	stencil.runIterativeGeneticGPU(iterations, GPUBlockSize);	
+	//stencil.runIterativeAutoGPU(iterations, GPUBlockSize);	
+	//stencil.runIterativeTilingGPU(iterations, x_max, y_max/2, 1, iterations, GPUBlockSize);	
+	//stencilComponent.runIteratorTilingGPU(T_MAX, 10000,7000,1, GPUBlockSize);
+	hrt_stop(&timer);
+	cout << hrt_elapsed_time(&timer) << endl;
+	//double d2 = omp_get_wtime();
+	cout << "Done!" << endl;
+	/*
+	for(int h=0;h<tmpGrid.getHeight();h++)
+	for(int w=0;w<tmpGrid.getWidth();w++)
+		assert(tmpGrid(h,w)==outputGrid(h,w));
+	*/
+	//cerr<<"Tempo Processamento: "<<d2-d1<<endl;
+	
+
+	//Write Output To File
+	if(writeToFile == 1){
+		stringstream outputFile;
+		outputFile << "output_" <<x_max << "_" << y_max << "_" << iterations << "_" << GPUTime << "_" << GPUBlockSize <<"_" << numCPUThreads << ".gol";
+		string out = outputFile.str();
+                cout << "Writing file: " << out << endl;
+		ofstream ofs(out.c_str(), std::ofstream::out);
+		ofs<<"input:"<<endl;
+		for(int h=0;h<y_max;h++) {
+			for(int w=0;w<x_max;w++) {
+				ofs<<inputGrid(h,w)<<' ';
+			}
+			ofs<<endl;
+		}
+		ofs<<"sequential output:"<<endl;
+		for(int h=0;h<y_max;h++) {
+			for(int w=0;w<x_max;w++) {
+				ofs<<tmpGrid(h,w)<<' ';
+			}
+			ofs<<endl;
+		}
+		ofs<<"GPU /w tiling output:"<<endl;
+		for(int h=0;h<y_max;h++) {
+			for(int w=0;w<x_max;w++) {
+				ofs<<outputGrid(h,w)<<' ';
+			}
+			ofs<<endl;
+		}
+		ofs<<"GPU x sequential diff:"<<endl;
+		for(int h=0;h<y_max;h++) {
+			for(int w=0;w<x_max;w++) {
+				ofs<<(outputGrid(h,w)-tmpGrid(h,w))<<' ';
+			}
+			ofs<<endl;
+		}
+		ofs.close();
+	}
+	inputGrid.hostFree();
+	outputGrid.hostFree();
+	tmpGrid.hostFree();
+	//inCpyGrid.hostFree();
+	/*
+	cout<<"INPUT"<<endl;
+	for(int i=0; i<9;i++){
+		for(int j=0; j<9;j++){
+			cout<<inputGrid(i,j);
+		}
+		cout<<endl;
+	}
+	cout<<endl;
+	
+	cout<<"OUTPUT"<<endl;
+	for(int i=0; i<9;i++){
+		for(int j=0; j<9;j++){
+			cout<<outputGrid(i,j);
+		}
+		cout<<endl;
+	}
+	cout<<endl;
+	*/
+	return 0;
+}

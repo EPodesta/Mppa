@@ -1,0 +1,1 @@
+cmd_output/build/master_build/src/master.c.o := /usr/local/k1tools/bin/k1-gcc -Wp,-MD,output/build/master_build/src/.master.c.o.d -Wp,-MT,output/build/master_build/src/master.c.o -mcore=k1io -mboard=developer     -mos=rtems   -c -o output/build/master_build/src/master.c.o src/master.c

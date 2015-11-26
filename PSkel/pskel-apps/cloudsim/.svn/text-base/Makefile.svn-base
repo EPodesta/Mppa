@@ -1,0 +1,61 @@
+CC 		= g++
+CUDAC 		= nvcc
+OPTIMUS         = optirun #remover este valor se não estiver em um sistema OPTIMUS (notebook)
+CUDA_LIB_PATH   = /usr/local/cuda-5.5/lib64
+CUDAFLAGS       = -O3 -arch=sm_21 -Xcompiler -ftree-vectorize #-ccbin g++ -g -O3 -w -m64 -Xcompiler -fopenmp -Xcompiler -ftree-vectorize -Xcompiler -msse4 #-Xcompiler -ftree-vectorizer-verbose=3
+CXXFLAGS	= -O3 -w
+OMPFLAGS        = -O3 -w
+GENCODE		= -gencode arch=compute_20,code=sm_20 -gencode arch=compute_30,code=sm_30 -gencode arch=compute_35,code=\"sm_35,compute_35\"
+OMP_TBB         = -fopenmp -lgomp -ltbb
+OMP        	 = -fopenmp -lgomp
+LIBS		= -Xcompiler -fopenmp -lgomp -ltbb -I../../../lib/ -L../../../lib/ga -lga -lm 
+SRC_NAME        = cloudsim
+SEQ_SRC_NAME    = AC_SimCloud
+ANZ_SRC_PSKEL 	= analyze_pskel
+ANZ_SRC_OMP   	= analyze_alisson
+BIN_DIR         = ../bin/
+
+all: clean pskel
+	
+pskel: ${SRC_NAME}.cu
+	#${CUDAC} ${CUDAFLAGS} ${GENCODE} -o ${SRC_NAME}.o -c ${SRC_NAME}.cu
+	${CUDAC} ${CUDAFLAGS} -o ${BIN_DIR}${SRC_NAME} ${SRC_NAME}.cu ${LIBS} 
+
+alisson: ${SEQ_SRC_NAME}.cpp
+	${CC} ${OMPFLAGS} ${SEQ_SRC_NAME}.cpp -o ${BIN_DIR}${SEQ_SRC_NAME} ${OMP}
+
+analyzepskel: ${ANZ_SRC_PSKEL}.cpp
+	${CC} ${ANZ_SRC_PSKEL}.cpp -o ${BIN_DIR}${ANZ_SRC_PSKEL}
+
+analyzealisson: ${ANZ_SRC_OMP}.cpp
+	${CC} ${ANZ_SRC_OMP}.cpp -o ${BIN_DIR}${ANZ_SRC_OMP}
+
+alissonnvcc: ${SEQ_SRC_NAME}.cpp 
+	nvcc ${SEQ_SRC_NAME}.cpp -o ${BIN_DIR}${SEQ_SRC_NAME} -Xcompiler -fopenmp -lgomp
+
+testpskelseq:
+	time -p ${BIN_DIR}${SRC_NAME} 50 100 100  20 -3 5.0 700.0 0.001 0.0 32 1 0 10
+
+testpskeltbb:
+	time -p ${BIN_DIR}${SRC_NAME} 500 500 500  20 -3 5.0 700.0 0.001 0.0 32 12 0 10
+
+testpskelgpu:
+	time -p ${BIN_DIR}${SRC_NAME} 70 100 100  20 -3 5.0 700.0 0.001 1.0 32 12 0 10
+
+testpskelhib1:
+	time -p ${BIN_DIR}${SRC_NAME} 100 100 100  20 -3 5.0 700.0 0.0001 0.5 32 12 1 10
+
+testpskelhib2:
+	time -p ${BIN_DIR}${SRC_NAME} 100 100 100  20 -3 5.0 700.0 0.0001 0.7 32 12 1 10
+
+testalissonseq:
+	time -p ${BIN_DIR}${SEQ_SRC_NAME} 100 100 100 20 -3.0 5.0 700.0 0.0001 1 1 10
+
+testalissonomp:
+	time -p ${BIN_DIR}${SEQ_SRC_NAME} 50 10000 20000 20 -3.0 5.0 700.0 0.0001 12 1 10
+
+testoptimus:
+	time -p ${OPTIMUS} ${BIN_DIR}${SRC_NAME} 600 600 1 1.0 32 8
+	
+clean:
+	 rm -f *.o ${BIN_DIR}${SRC_NAME} ${BIN_DIR}${SEQ_SRC_NAME} ${BIN_DIR}${ANZ_SRC_PSKEL} ${BIN_DIR}${ANZ_SRC_OMP}

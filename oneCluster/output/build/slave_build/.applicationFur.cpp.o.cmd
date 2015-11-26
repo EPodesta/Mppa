@@ -1,0 +1,1 @@
+cmd_output/build/slave_build/applicationFur.cpp.o := /usr/local/k1tools/bin/k1-g++ -Wp,-MD,output/build/slave_build/.applicationFur.cpp.o.d -Wp,-MT,output/build/slave_build/applicationFur.cpp.o -mcore=k1dp -mboard=developer  -O3 -w -I ../../lib   -mos=nodeos   -c -o output/build/slave_build/applicationFur.cpp.o applicationFur.cpp

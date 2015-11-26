@@ -1,0 +1,636 @@
+//============================================================================
+// Name        : AC_SimCloud.cpp
+// Author      : alisson
+// Version     :
+// Copyright   : Your copyright notice
+// Description : Hello World in C++, Ansi-style
+//============================================================================
+
+using namespace std;
+#include <vector>
+#include <time.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
+#include <iostream>
+#include <fstream>
+#include <string>
+#include <sys/stat.h>
+#include <omp.h>
+
+#define WIND_X_BASE	  		15
+#define WIND_Y_BASE	  		12
+#define DISTURB		  		0.1
+#define CELL_LENGTH   		0.1
+#define K             		0.0243
+#define DELTAPO       		0.5
+#define TAM_VETOR_FILENAME  200
+
+
+typedef struct
+{
+	vector<float*> neighbor;
+}Neighborhood;
+
+/* Alocate Memory float type */
+float **CreateGridfloat(int linha, int coluna)
+{
+	float **grid = new float*[linha];
+
+	for( int i = 0; i < linha; i++ )
+	{
+		grid[i] = new float[coluna];
+	}
+	return(grid);
+}
+
+/* Alocate Memory interger type */
+int **CreateGridInterger(int linha, int coluna)
+{
+	int **grid = new int*[linha];
+
+	for( int i = 0; i < linha; i++ )
+	{
+		grid[i] = new int[coluna];
+	}
+	return(grid);
+}
+
+/* Deallocate Memory */
+void DestroyerGrid(float **grid, int linha, int coluna)
+{
+	for(int i=0; i < linha; i++)
+	{
+		delete grid[i];
+	}
+	delete grid;
+}
+
+/* Deallocate Memory poniter */
+void DestroyerNeighborhood(Neighborhood **neighborhood, int linha, int coluna)
+{
+	for(int i=0; i < linha; i++)
+	{
+		delete neighborhood[i];
+	}
+	delete neighborhood;
+}
+
+/* Init grid with atmospheric temperature */
+void InitGridTemperature(float **temperature, float **temperature_temp, int linha, int coluna, float temperaturaAtmosferica)
+{
+	for( int i = 0; i < linha; i++ )
+	{
+		for( int j = 0; j < coluna; j++ )
+		{
+			temperature[i][j] = temperaturaAtmosferica;
+			temperature_temp[i][j] = 0;	
+		}
+	}
+}
+
+/* Init Constant Grid Wind Latitudinal(Wind_X) and Grid Wind Longitudinal(Wind_Y) */
+void InitGridWind(float ** wind_x, float **wind_y, int linha, int coluna)
+{
+	for( int i = 0; i < linha; i++ )
+	{
+		for( int j = 0; j < coluna; j++ )
+		{
+			wind_x[i][j] = (WIND_X_BASE - DISTURB) + (float)rand()/RAND_MAX * 2 * DISTURB;
+			wind_y[i][j] = (WIND_Y_BASE - DISTURB) + (float)rand()/RAND_MAX * 2 * DISTURB;
+		}
+	}
+}
+/* Init a cloud in grid based in temperature */
+void InitCloud(float **temperature, float **temperature_temp, float limInfPO, float limSupPO, int x0, int y0, int raio)
+{
+	int y;
+	srand(1);
+
+	for(int i = x0 - raio; i < x0 + raio; i++)
+	{
+		 // Equação da circunferencia: (x0 - x)² + (y0 - y)² = r²
+		y = (int)((floor(sqrt(pow((float)raio, 2.0) - pow(((float)x0 - (float)i), 2)) - y0) * -1));
+
+		for(int j = y0 + (y0 - y); j >= y; j--)
+		{
+			temperature[i][j] = limInfPO + (float)rand()/RAND_MAX * (limSupPO - limInfPO);
+		}
+	}
+}
+
+/* Convert Celsius to Kelvin */
+float Convert_Celsius_To_Kelvin(float number_celsius)
+{
+	float number_kelvin;
+	number_kelvin = number_celsius + 273.15;
+	return number_kelvin;
+}
+
+/* Convert Pressure(hPa) to Pressure(mmHg) */
+float Convert_hPa_To_mmHg(float number_hpa)
+{
+	float number_mmHg;
+	number_mmHg = number_hpa * 0.750062;
+
+	return number_mmHg;
+}
+
+/* Convert Pressure Millibars to mmHg */
+float Convert_milibars_To_mmHg(float number_milibars)
+{
+	float number_mmHg;
+	number_mmHg = number_milibars * 0.750062;	
+
+	return number_mmHg;
+}
+
+/* Calculate RPV */
+float CalculateRPV(float temperature_Kelvin, float pressure_mmHg)
+{
+	float realPressureVapor; //e
+	float PsychrometricConstant = 6.7 * powf(10,-4); //A
+	float PsychrometricDepression = 1.2; //(t - tu) in ºC
+	float esu = pow(10, ((-2937.4 / temperature_Kelvin) - 4.9283 * log10(temperature_Kelvin) + 23.5470)); //10 ^ (-2937,4 / t - 4,9283 log t + 23,5470)
+	realPressureVapor = Convert_milibars_To_mmHg(esu) - (PsychrometricConstant * pressure_mmHg * PsychrometricDepression);
+
+	return realPressureVapor;
+}
+
+float CalculateDewPoint(float temperature_Kelvin, float pressure_mmHg)
+{
+	float dewPoint; //TD
+	float realPressureVapor = CalculateRPV(temperature_Kelvin, pressure_mmHg); //e
+	dewPoint = (186.4905 - 237.3 * log10(realPressureVapor)) / (log10(realPressureVapor) -8.2859);
+
+	return dewPoint;
+}
+
+void ChangeGrid(float **temperature, float **temperature_temp, int linha, int coluna)
+{
+	for (int i = 0; i < linha; i++)
+	{
+		for (int j = 0; j < coluna; j++)
+		{
+			temperature[i][j] = temperature_temp[i][j];
+		}
+	}
+}
+
+/* Parallel Update Grid and Sequential Update Grid */
+void Update(float **temperature, float **temperature_temp, float **wind_x, float **wind_y, Neighborhood **neighborhood, int linha, int coluna, float deltaT, int numThreads)
+{
+	if(numThreads == 1) /* verifica se numero de threads inserida pelo usuário é igual a 1. Se verdadeiro, atualiza a matriz de temperatura com o código sequencial  */
+	{//inicio if
+		for (int i = 0; i < linha; i++)
+		{
+			for (int j = 0; j < coluna; j++)
+			{
+				int numNeighbor = neighborhood[i][j].neighbor.size();
+
+
+				// Condução Update cell's Temperature
+				float sum = 0;
+				float temperatura_conducao = 0;
+				for( int m = 0; m < numNeighbor; m++ )
+				{
+					sum += temperature[i][j] - *neighborhood[i][j].neighbor[m];
+				}			
+				temperatura_conducao = -K*(sum / numNeighbor)*deltaT;
+				temperature_temp[i][j] = temperature[i][j] + temperatura_conducao;
+
+				//Implementation the vertical wind   neighbor[1](neighbor[0] Up) / neighbor[1](neighbor Right) ||  neighbor[2](neighbor Down) / neighbor[3](neighbor Left)
+				if( numNeighbor == 4 )
+				{
+					float componenteVentoX = 0;
+					float componenteVentoY = 0;
+					float temperaturaNeighborX = 0;
+					float temperaturaNeighborY = 0;				
+
+					if( wind_x[i][j] > 0 )
+					{
+						temperaturaNeighborX = *neighborhood[i][j].neighbor[3];
+						componenteVentoX     = wind_x[i][j];
+					}
+					else
+					{
+						temperaturaNeighborX = *neighborhood[i][j].neighbor[1];
+						componenteVentoX     = -wind_x[i][j];
+					}
+
+					if( wind_y[i][j] > 0 )
+					{
+						temperaturaNeighborY = *neighborhood[i][j].neighbor[2];
+						componenteVentoY     = wind_y[i][j];
+					}
+					else
+					{
+						temperaturaNeighborY = *neighborhood[i][j].neighbor[0];
+						componenteVentoY     = -wind_y[i][j];
+					}
+					
+					float temp_wind = (-componenteVentoX * ((temperature[i][j] - temperaturaNeighborX)/CELL_LENGTH)) -(componenteVentoY * ((temperature[i][j] - temperaturaNeighborY)/CELL_LENGTH));				
+					temperature_temp[i][j] = temperature_temp[i][j] + (temp_wind * deltaT);
+				}			
+			}
+
+		}
+		
+		for (int i = 0; i < linha; i++)
+		{
+			for (int j = 0; j < coluna; j++)
+			{
+				temperature[i][j] = temperature_temp[i][j];
+			}
+		}
+	}//fim if
+	else /* se numero de threads inserida pelo usuário é maior que 1, atualiza a matriz de temperatura com o código paralelo  */
+	{//inicio else
+		omp_set_num_threads(numThreads);
+		#pragma omp parallel for
+		for (int i = 0; i < linha; i++)
+		{
+			for (int j = 0; j < coluna; j++)
+			{
+				int numNeighbor = neighborhood[i][j].neighbor.size();
+
+
+				// Condução Update cell's Temperature
+				float sum = 0;
+				float temperatura_conducao = 0;
+				for( int m = 0; m < numNeighbor; m++ )
+				{
+					sum += temperature[i][j] - *neighborhood[i][j].neighbor[m];
+				}			
+				temperatura_conducao = -K*(sum / numNeighbor)*deltaT;
+				temperature_temp[i][j] = temperature[i][j] + temperatura_conducao;
+
+				//Implementation the vertical wind   neighbor[1](neighbor[0] Up) / neighbor[1](neighbor Right) ||  neighbor[2](neighbor Down) / neighbor[3](neighbor Left)
+				if( numNeighbor == 4 )
+				{
+					float componenteVentoX = 0;
+					float componenteVentoY = 0;
+					float temperaturaNeighborX = 0;
+					float temperaturaNeighborY = 0;				
+
+					if( wind_x[i][j] > 0 )
+					{
+						temperaturaNeighborX = *neighborhood[i][j].neighbor[3];
+						componenteVentoX     = wind_x[i][j];
+					}
+					else
+					{
+						temperaturaNeighborX = *neighborhood[i][j].neighbor[1];
+						componenteVentoX     = -wind_x[i][j];
+					}
+
+					if( wind_y[i][j] > 0 )
+					{
+						temperaturaNeighborY = *neighborhood[i][j].neighbor[2];
+						componenteVentoY     = wind_y[i][j];
+					}
+					else
+					{
+						temperaturaNeighborY = *neighborhood[i][j].neighbor[0];
+						componenteVentoY     = -wind_y[i][j];
+					}
+					
+					float temp_wind = (-componenteVentoX * ((temperature[i][j] - temperaturaNeighborX)/CELL_LENGTH)) -(componenteVentoY * ((temperature[i][j] - temperaturaNeighborY)/CELL_LENGTH));				
+					temperature_temp[i][j] = temperature_temp[i][j] + (temp_wind * deltaT);
+				}			
+			}
+
+		}
+
+		#pragma omp parallel for
+		for (int i = 0; i < linha; i++)
+		{
+			for (int j = 0; j < coluna; j++)
+			{
+				temperature[i][j] = temperature_temp[i][j];
+			}
+		}
+	}//fim else		
+}
+
+/* Create Neighborhood for grid temperature */
+Neighborhood **CreateNeighborhood(float **grid, int linha, int coluna)
+{
+	Neighborhood **neighborhood = new Neighborhood*[linha];
+
+	for( int i = 0; i < linha; i++ )
+	{
+		neighborhood[i] = new Neighborhood[coluna];
+	}
+
+	for( int i = 0; i < linha; i++ )
+	{
+		for( int j = 0; j < coluna; j++ )
+		{
+			if( i-1 > -1 )     // Conect the up neighbor
+				neighborhood[i][j].neighbor.push_back(&grid[i-1][j]);
+			if( j+1 < coluna )  // Conect the right neighbor
+				neighborhood[i][j].neighbor.push_back(&grid[i][j+1]);
+			if( i+1 < linha )  // Conect the up neighbor
+				neighborhood[i][j].neighbor.push_back(&grid[i+1][j]);
+			if( j-1 > -1 )     // Conect the left neighbor
+				neighborhood[i][j].neighbor.push_back(&grid[i][j-1]);
+		}
+	}
+	return(neighborhood);
+}
+
+/* Write grid temperature in text file */
+void WriteGridTemp(float **grid, int linha, int coluna, int iteracao, char *dirname, int numThreads, char *typeSim)
+{
+	FILE *file;
+	char filename[TAM_VETOR_FILENAME];
+
+	if(numThreads > 1)
+		sprintf(filename,"%s//%s-temp_%d-thread_iteration#_%d.txt",dirname, typeSim,numThreads, iteracao);
+	else
+		sprintf(filename,"%s//%s-temp_iteration#_%d.txt",dirname, typeSim, iteracao);
+	file = fopen(filename, "w");	
+
+	fprintf(file, "Iteração: %d\n", iteracao);
+	for(int i = 0; i < linha; i++)
+	{
+		for(int j = 0; j < coluna; j++)
+		{
+			fprintf(file, "%.4f  ", grid[i][j]);
+		}
+		fprintf(file, "\n");
+	 }	
+	fclose(file);
+}
+
+/* Write Grid Wind Latitudinal(Wind_X) and Grid Wind Longitudinal(Wind_Y) */
+void WriteGridWind(float **wind_x, float **wind_y, int linha, int coluna, char *dirname_windx, char *dirname_windy)
+{
+	FILE *file_windx, *file_windy;
+	char filename_windx[TAM_VETOR_FILENAME];
+	char filename_windy[TAM_VETOR_FILENAME];
+
+	sprintf(filename_windx,"%s//windX.txt",dirname_windx);
+	sprintf(filename_windy,"%s//windY.txt",dirname_windy);
+	file_windx = fopen(filename_windx,"r");
+	file_windy = fopen(filename_windy, "r");
+
+	if (file_windx == NULL && file_windy == NULL)
+	{
+		file_windx = fopen(filename_windx, "w");
+		file_windy = fopen(filename_windy, "w");
+		for(int i = 0; i < linha; i++)
+		{
+			for(int j = 0; j < coluna; j++)
+			{
+			fprintf(file_windx, "%.4f  ", wind_x[i][j]);
+			fprintf(file_windy, "%.4f  ", wind_y[i][j]);
+			}
+			fprintf(file_windx, "\n");
+			fprintf(file_windy, "\n");
+		}	
+	}
+	fclose(file_windx);
+	fclose(file_windy);
+}
+
+/* Write time simulation */
+void WriteTimeSimulation(char *dirname, char *typeSim, int numThreads, float time)
+{
+	FILE *file;
+	char filename[TAM_VETOR_FILENAME];
+	if(numThreads > 1)
+		sprintf(filename,"%s//%stime-sim_%d-thread.txt",dirname, typeSim, numThreads);
+	else
+	sprintf(filename,"%s//%stime-sim.txt",dirname, typeSim);
+
+	file = fopen(filename,"r");
+	if (file==NULL)
+	{
+		file = fopen(filename, "w");
+		//fprintf(file,"Time %s-simulation", typeSim);
+		fprintf(file,"\nUpdate Time: %f segundos", time);
+	}
+	else
+	{
+		file = fopen(filename, "a");
+		fprintf(file,"\nUpdate Time: %f segundos", time);
+	}
+
+	fclose(file);
+}
+
+/* Write Simulation info all parameters */
+void WriteSimulationInfo(int numero_iteracoes, int linha, int coluna, int raio_nuvem, float temperaturaAtmosferica, float alturaNuvem, float pressaoAtmosferica, float deltaT, float pontoOrvalho, int menu_option, int write_step, int numThreads, char *dirname, char *typeSim)
+{
+	FILE *file;
+	char filename[TAM_VETOR_FILENAME];
+	sprintf(filename,"%s//%s-simulationinfo.txt",dirname, typeSim);
+
+	file = fopen(filename,"r");
+	if (file==NULL)
+	{
+		file = fopen(filename, "w");
+		fprintf(file,"***Experimento %s***", typeSim);
+		fprintf(file,"\nData_%s",__DATE__);
+		if(numThreads > 1){
+		fprintf(file,"\nNúmero de Threads: %d", numThreads);
+		}
+		fprintf(file,"\nTemperatura Atmosférica: %.1f", temperaturaAtmosferica);
+		fprintf(file,"\nAltura da Nuvem: %.1f", alturaNuvem);
+		fprintf(file,"\nPonto de Orvalho: %f", pontoOrvalho);
+		fprintf(file,"\nPressao: %.1f", pressaoAtmosferica);
+		fprintf(file,"\nCondutividade térmica:%f", K);
+		fprintf(file,"\nDeltaT: %f", deltaT);		
+		fprintf(file,"\nNúmero de Iterações:%d", numero_iteracoes);
+		fprintf(file,"\nTamanho da Grid:%dX%d", linha, coluna);
+		fprintf(file,"\nRaio da nuvem:%d", raio_nuvem);
+		fprintf(file,"\nNúmero de Processadores do Computador:%d", omp_get_num_procs());
+		fprintf(file,"\nDelta Ponto de Orvalho:%f", DELTAPO);
+		fprintf(file,"\nLimite Inferior Ponto de Orvalho:%lf", (pontoOrvalho - DELTAPO));
+		fprintf(file,"\nLimite Superior Ponto de Orvalho:%lf", (pontoOrvalho + DELTAPO));
+		fprintf(file,"\nMenu Option:%d", menu_option);
+		fprintf(file,"\nWrite Step:%d", write_step);			
+	}
+	else
+	{
+		char filename_old[TAM_VETOR_FILENAME];
+		string line;
+		int posicao;
+		char buffer [33];
+
+		sprintf(filename_old,"%s//file_temp.txt",dirname);
+		ofstream outFile(filename_old, ios::out);
+		ifstream fileread(filename);
+
+	    while(!fileread.eof())
+		{
+			getline(fileread, line);
+			posicao = line.find("Threads:");
+			if (posicao!= string::npos)
+			{
+				string line_temp = line.substr(posicao+1, line.size());
+				sprintf (buffer, "%d", numThreads);
+				posicao = line_temp.find(buffer);
+				if (posicao!= string::npos)
+				{
+					outFile << line << '\n';
+				}
+				else
+				{
+					sprintf (buffer, ",%d", numThreads);
+					line.append(buffer);
+					outFile << line << '\n';
+				}
+			}
+			else
+				outFile << line << '\n';
+		}
+		remove(filename);
+		rename(filename_old, filename);
+		outFile.close();
+		fileread.close();
+	}
+	fclose(file);
+}
+
+int main(int argc, char* argv[]) {
+	int numero_iteracoes, linha, coluna, raio_nuvem, flag_openmp, numThreads, write_step, menu_option;
+	float temperaturaAtmosferica, deltaT, alturaNuvem, pressaoAtmosferica, pontoOrvalho, limInfPO, limSupPO, cell_length;
+	float **temperature, **temperature_temp, **wind_x, **wind_y;	
+	int **number_neighbors;
+	Neighborhood **neighborhood;
+	
+	if (argc != 12){
+		printf ("Wrong number of parameters.\n", argv[0]);
+		printf ("Usage: cloudsim Numero_Iteraoes Linha Coluna Raio_Nuvem Temperatura_Atmosferica Altura_Nuvem Pressao_Atmosferica Delta_T NumThreads Menu_Option Write_Step\n");
+		exit (-1);
+	}
+	
+	numero_iteracoes = atoi(argv[1]);
+	linha = atoi(argv[2]);
+	coluna = atoi(argv[3]);
+	raio_nuvem = atoi(argv[4]);
+	temperaturaAtmosferica = atof(argv[5]);
+	alturaNuvem = atof(argv[6]);
+	pressaoAtmosferica = atof(argv[7]);
+	deltaT = atof(argv[8]);
+	numThreads = atoi(argv[9]);
+	menu_option = atoi(argv[10]);
+	write_step = atoi(argv[11]);		
+	pontoOrvalho = CalculateDewPoint(Convert_Celsius_To_Kelvin(temperaturaAtmosferica), Convert_hPa_To_mmHg(pressaoAtmosferica));
+	limInfPO = pontoOrvalho - DELTAPO;
+	limSupPO = pontoOrvalho + DELTAPO;	
+		
+	char dirmain[30];
+	char dirname[TAM_VETOR_FILENAME];
+	char dirMatrix_temp[TAM_VETOR_FILENAME];
+	char dirMatrix_windX[TAM_VETOR_FILENAME];
+	char dirMatrix_windY[TAM_VETOR_FILENAME];
+	char typeSim[15];
+	float start_time = 0;
+	float end_time = 0;
+
+	if(numThreads > 1)
+		sprintf(typeSim,"parallel");
+	else
+		sprintf(typeSim,"sequential");
+				
+
+	/* Alocando espaço na memória para as matrizes */
+	temperature = CreateGridfloat(linha, coluna);
+	temperature_temp = CreateGridfloat(linha, coluna);
+	wind_x = CreateGridfloat(linha, coluna);
+	wind_y = CreateGridfloat(linha, coluna);
+	neighborhood = CreateNeighborhood(temperature, linha, coluna);	
+
+
+	/* Inicialização das matrizes com condição inicial do sistema */
+	InitGridTemperature(temperature, temperature_temp, linha, coluna, temperaturaAtmosferica);
+	InitGridWind(wind_x, wind_y, linha, coluna);
+	InitCloud(temperature, temperature_temp, limInfPO, limSupPO, linha/2, coluna/2, raio_nuvem);
+
+	printf("\n\nExecutando a Simulacao %s...\n", typeSim);
+	printf("Grid: %dx%d\nIterações:%d\nDelta:%f", linha, coluna, numero_iteracoes, deltaT);
+	if(numThreads > 1)
+		printf("\nNúmero Thread:%d", numThreads);
+	printf("\n\n");
+
+	/* Criar diretório para escrever arquivos da simulação */
+	mkdir("resultados", S_IRWXU|S_IRGRP|S_IXGRP);
+	mkdir("resultados//alisson", S_IRWXU|S_IRGRP|S_IXGRP);
+	if(numThreads == 1)
+	  sprintf(dirmain, "resultados//alisson//seq");
+	else
+	  sprintf(dirmain, "resultados//alisson//omp");
+	//sprintf(dirmain, "resultados//alisson//omp");
+	mkdir(dirmain, S_IRWXU|S_IRGRP|S_IXGRP);
+	sprintf(dirname,"%s//MO-%d_Experimento_matriz-%dx%d-%d-iteracoes_delta_t-%f",dirmain, menu_option, linha, coluna, numero_iteracoes, deltaT);	
+	mkdir(dirname, S_IRWXU|S_IRGRP|S_IXGRP);
+
+	switch(menu_option)
+	{
+	case 0: /* opção 0 executa laço sem gravar matriz de temperatura em arquivo */
+		
+		start_time = omp_get_wtime();
+				
+		for (int i = 0; i < numero_iteracoes; ++i) {
+			Update(temperature, temperature_temp, wind_x, wind_y, neighborhood, linha, coluna, deltaT, numThreads);
+		}
+		
+		end_time = omp_get_wtime();
+					
+		break;
+
+	case 1: /* opção 1 executa laço gravando matriz de temperatura em arquivo */
+		sprintf(dirMatrix_temp,"%s//matrizes_temp",dirname);
+		mkdir(dirMatrix_temp, S_IRWXU|S_IRGRP|S_IXGRP);
+		int count_write_step = 0;
+		int i = 0;
+						
+		start_time = omp_get_wtime();
+
+		WriteGridTemp(temperature, linha, coluna, i, dirMatrix_temp, numThreads, typeSim);/* Escrever matrizes de temperatura em arquivo texto  */					
+		for (i; i < numero_iteracoes-1; ++i) {
+
+		    Update(temperature, temperature_temp, wind_x, wind_y, neighborhood, linha, coluna, deltaT, numThreads); /* atualizar matriz de temperatura    */
+		    if( i == count_write_step)
+		    {				
+			WriteGridTemp(temperature, linha, coluna, i+1, dirMatrix_temp, numThreads, typeSim);/* Escrever matrizes de temperatura em arquivo texto  */
+			count_write_step += write_step;
+		    }
+			//Update(temperature, temperature_temp, wind_x, wind_y, neighborhood, linha, coluna, deltaT, numThreads); /* atualizar matriz de temperatura	*/				
+		}
+		Update(temperature, temperature_temp, wind_x, wind_y, neighborhood, linha, coluna, deltaT, numThreads); /* atualizar matriz de temperatura      */
+		WriteGridTemp(temperature, linha, coluna, numero_iteracoes, dirMatrix_temp, numThreads, typeSim);/* Escrever matrizes de temperatura em arquivo texto  */
+		
+		
+		end_time = omp_get_wtime();
+				
+		/* Criar diretório para escrever as matrizes dos ventos Latitudinal(Wind_X) e Longitudinal(Wind_Y) */
+		sprintf(dirMatrix_windX,"%s//matriz_windX",dirname);		
+		sprintf(dirMatrix_windY,"%s//matriz_windY",dirname);
+		mkdir(dirMatrix_windX, S_IRWXU|S_IRGRP|S_IXGRP);
+		mkdir(dirMatrix_windY, S_IRWXU|S_IRGRP|S_IXGRP);
+		
+		/* Escrever as matrizes dos ventos Latitudinal(wind_X) e Longitudinal(wind_Y) */
+		WriteGridWind(wind_x, wind_y, linha, coluna, dirMatrix_windX, dirMatrix_windY);		
+		break;
+	}
+
+	printf("\nTempo Update: %f segundos", end_time - start_time);
+	WriteTimeSimulation(dirname, typeSim, numThreads, end_time - start_time);
+	WriteSimulationInfo(numero_iteracoes, linha, coluna, raio_nuvem, temperaturaAtmosferica, alturaNuvem, pressaoAtmosferica, deltaT, pontoOrvalho, menu_option, write_step, numThreads, dirname, typeSim);	
+
+	/* Desalocando os espaços de memória para todas as matrizes */
+	DestroyerGrid(temperature, linha, coluna);
+	DestroyerGrid(temperature_temp, linha, coluna);
+	DestroyerGrid(wind_x, linha, coluna);
+	DestroyerGrid(wind_y, linha, coluna);	
+	
+	printf ("\n\n**FIM DO EXPERIMENTO %dx%d_%d-iterações_delta_t-%f**\n\n", linha, coluna, numero_iteracoes, deltaT);
+
+
+	return 0;
+}

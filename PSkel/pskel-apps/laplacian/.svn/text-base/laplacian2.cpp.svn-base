@@ -1,0 +1,123 @@
+#include "../../include/PSkelCoeff.h"
+#include <stdio.h>
+#include <omp.h>
+#include <iostream>
+#define MASK_WIDTH 2
+#define MASK_HEIGHT 6
+#define MASK_RADIUS 2
+
+using namespace std;
+
+STENCIL_FUNC_P(laplacian,float*, int*, float*, input, output, mask, coeff, x_max, y_max, z_max, mask_width,mask_height,x,y,z,
+	float sum = 0.0;	
+	if(x>=1 && x<x_max-1 && y>=1 && y<y_max-1 && z>=1 && z<z_max-1){
+		for(int p=0;p<mask_height;p++){
+			sum+=input[(x+mask[p*mask_width + 0]) + x_max*((y+mask[p*mask_width + 1])+y_max*(z+mask[p*mask_width + 2]))];
+		}			  
+		output[x + x_max*(y+y_max*z)] = coeff[0] * input[x + x_max*(y+y_max*z)] + coeff[1] * sum;
+	}
+)
+
+void setMask(int* &hostMask){
+	hostMask[0*MASK_WIDTH + 0] = 1;
+	hostMask[0*MASK_WIDTH + 1] = 0;
+	hostMask[0*MASK_WIDTH + 2] = 0;
+
+	hostMask[1*MASK_WIDTH + 0] = -1;
+	hostMask[1*MASK_WIDTH + 1] = 0;
+	hostMask[1*MASK_WIDTH + 2] = 0;
+
+	hostMask[2*MASK_WIDTH + 0] = 0;
+	hostMask[2*MASK_WIDTH + 1] = 1;
+	hostMask[2*MASK_WIDTH + 2] = 0;
+	
+	hostMask[3*MASK_WIDTH + 0] = 0;
+	hostMask[3*MASK_WIDTH + 1] = -1;
+	hostMask[3*MASK_WIDTH + 2] = 0;
+
+	hostMask[4*MASK_WIDTH + 0] = 0;
+	hostMask[4*MASK_WIDTH + 1] = 0;
+	hostMask[4*MASK_WIDTH + 2] = 1;
+
+	hostMask[5*MASK_WIDTH + 0] = 0;
+	hostMask[5*MASK_WIDTH + 1] = 0;
+	hostMask[5*MASK_WIDTH + 2] = -1;
+}
+
+int main(int argc, char **argv){
+	int x_max, y_max, z_max;
+
+	float* input;
+    float* output;
+	float* coeff;
+	int* mask;
+
+	if (argc != 7){
+		printf ("Wrong number of parameters.\n", argv[0]);
+		exit (-1);
+	}
+
+	x_max = atoi (argv[1]);
+	y_max = atoi (argv[2]);
+	z_max = atoi (argv[3]);
+
+ 
+    /* allocate memory */
+    input = (float*) malloc (x_max * y_max * z_max * sizeof (float));
+    output = (float*) malloc (x_max * y_max * z_max * sizeof (float));
+	coeff = (float *) malloc (2 * sizeof(float));
+
+    //alpha = 1.f / (float) x_max;
+	coeff[0] = 1.0 / (float) x_max;
+
+    //beta = 2.f / (float) y_max;
+	coeff[1] = 2.0 / (float) y_max;
+
+	mask = (int *) malloc (MASK_WIDTH * MASK_HEIGHT * sizeof(int));
+	setMask(mask);
+
+	/* initialize the first timesteps */
+	#pragma omp parallel for //private (z,y,x)
+    for (int z = 0; z < z_max; z++){
+		for (int y = 0; y < y_max; y++){
+			for (int x = 0; x < x_max; x++){
+	        	input[x + x_max*(y+y_max*z)] = 1. + x*0.1 + y*0.01 + z*0.001;
+	         	output[x + x_max*(y+y_max*z)] = 2. + x*0.1 + y*0.01 + z*0.001;
+			}
+		}
+	}
+
+	/*for (int z = 1; z < z_max-1; z++){
+		for (int y = 1; y < y_max-1; y++){
+			for (int x = 1; x < x_max-1; x++){
+	         	cout<<output[x + x_max*(y+y_max*z)]<<"\t";
+			}
+			cout<<endl;
+		}
+		cout<<endl;
+	}
+	*/
+	
+
+	PSkel::Stencil<laplacian,float,int,float> stencilComponent(new laplacian);
+
+	stencilComponent.setInput(input, x_max, y_max, z_max);
+	stencilComponent.setMask(mask, MASK_WIDTH, MASK_HEIGHT, MASK_RADIUS);
+	stencilComponent.setCoeff(coeff, 2);
+	stencilComponent.setOutput(output, x_max, y_max, z_max);
+	stencilComponent.setGPUTime(atof(argv[4]));
+	stencilComponent.setGPUThreads(atoi(argv[5]));
+	stencilComponent.setCPUThreads(atoi(argv[6]));
+	stencilComponent.run();
+
+	cout<<"\n\nRESULTS:"<<endl;
+	for (int z = 1; z < z_max-1; z++){
+		for (int y = 1; y < y_max-1; y++){
+			for (int x = 1; x < x_max-1; x++){
+	         	cout<<output[x + x_max*(y+y_max*z)]<<"\t";
+			}
+			cout<<endl;
+		}
+		cout<<endl;
+	}
+}

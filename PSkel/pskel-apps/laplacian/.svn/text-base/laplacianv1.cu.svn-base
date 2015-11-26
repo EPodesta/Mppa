@@ -1,0 +1,156 @@
+#include "../../include/PSkelCoeff.h"
+#include <stdio.h>
+#include <omp.h>
+#include <iostream>
+#define MASK_WIDTH 2
+#define MASK_HEIGHT 6
+#define MASK_RADIUS x_max*y_max
+
+using namespace std;
+using namespace PSkel;
+/*versão antiga: 
+sum+=inputImage[(yOffset*imageWidth + xOffset)*imageChannels + zOffset];
+outputImage[(j*imageWidth + i)*imageChannels + k] = deviceCoeff[0] * inputImage[(j*imageWidth + i)*imageChannels + k] + deviceCoeff[1] * sum;
+*/
+
+STENCIL_FUNC(laplacian,float*, int*, float*,i,j,k,
+	float sum = 0.0;
+	int xOffset;
+	int yOffset;
+	int zOffset;
+	if( i < imageWidth && j < imageHeight && k < imageChannels){
+		for(int p=0;p<MASK_HEIGHT;p++){
+			xOffset = i+deviceMask[p*MASK_WIDTH + 0];
+			yOffset = j+deviceMask[p*MASK_WIDTH + 1];
+			zOffset = k+deviceMask[p*MASK_WIDTH + 2];
+			if(xOffset >=0 && xOffset < imageWidth && yOffset >=0 && yOffset < imageHeight && zOffset >=0 && zOffset < imageChannels){
+				sum+=inputImage[(zOffset*imageHeight + yOffset)*imageWidth + xOffset];
+					
+			}
+		}
+		outputImage[(k*imageHeight + j)*imageWidth + i] = deviceCoeff[0] * inputImage[(k*imageHeight + j)*imageWidth + i] + deviceCoeff[1] * sum;
+	}
+)
+
+void setMask(int* hostMask){
+	hostMask[0*MASK_WIDTH + 0] = 1;
+	hostMask[0*MASK_WIDTH + 1] = 0;
+	hostMask[0*MASK_WIDTH + 2] = 0;
+
+	hostMask[1*MASK_WIDTH + 0] = -1;
+	hostMask[1*MASK_WIDTH + 1] = 0;
+	hostMask[1*MASK_WIDTH + 2] = 0;
+
+	hostMask[2*MASK_WIDTH + 0] = 0;
+	hostMask[2*MASK_WIDTH + 1] = 1;
+	hostMask[2*MASK_WIDTH + 2] = 0;
+	
+	hostMask[3*MASK_WIDTH + 0] = 0;
+	hostMask[3*MASK_WIDTH + 1] = -1;
+	hostMask[3*MASK_WIDTH + 2] = 0;
+
+	hostMask[4*MASK_WIDTH + 0] = 0;
+	hostMask[4*MASK_WIDTH + 1] = 0;
+	hostMask[4*MASK_WIDTH + 2] = 1;
+
+	hostMask[5*MASK_WIDTH + 0] = 0;
+	hostMask[5*MASK_WIDTH + 1] = 0;
+	hostMask[5*MASK_WIDTH + 2] = -1;
+}
+
+int main(int argc, char **argv){
+	int x_max, y_max, z_max, x, y, z,T_MAX;
+	double t1, t2,nFlops;
+	float* input;
+    float* output;
+	float* coeff;
+	int* mask;
+
+	if (argc != 8){
+		printf ("Wrong number of parameters.\n", argv[0]);
+		printf ("Usage: laplacian WIDTH HEIGHT DEPTH ITERATIONS GPUTIME GPUBLOCKS CPUTHREADS\n");
+		exit (-1);
+	}
+
+	x_max = atoi (argv[1]);
+	y_max = atoi (argv[2]);
+	z_max = atoi (argv[3]);
+	T_MAX=atoi(argv[4]);
+ 
+    /* allocate memory */
+    input = (float*) malloc (x_max * y_max * z_max * sizeof (float));
+    output = (float*) malloc (x_max * y_max * z_max * sizeof (float));
+	coeff = (float *) malloc (2 * sizeof(float));
+
+	coeff[0] = 1.0f / (float) x_max; //alpha coefficient
+
+	coeff[1] = 2.0f / (float) y_max; //beta coefficient
+
+	mask = (int *) malloc (MASK_WIDTH * MASK_HEIGHT * sizeof(int));
+	setMask(mask);
+
+	/* initialize the first timesteps */
+	#pragma omp parallel for private (z,y,x)
+    for (z = 0; z < z_max; z++){
+		for (y = 0; y < y_max; y++){		
+			for (x = 0; x < x_max; x++){
+	        	//input[(y*y_max + x)*z_max + z] = 1.0 + x*0.1 + y*0.01 + z*0.001;
+	         	//output[(y*y_max + x)*z_max + z] = 0;
+				input[(z*y_max + y)*x_max + x] = 1.0 + x*0.1 + y*0.01 + z*0.001;
+	         	output[(z*y_max + y)*x_max + x] = 0;
+			}
+		}
+	}
+
+	/*for (z = 1; z < z_max-1; z++){
+		for (y = 1; y < y_max-1; y++){
+			for (x = 1; x < x_max-1; x++){
+	         	cout<<output[x + x_max*(y+y_max*z)]<<"\t";
+			}
+			cout<<endl;
+		}
+		cout<<endl;
+	}
+	*/
+
+	PSkel::Stencil<laplacian,float,int,float> stencilComponent(new laplacian);
+
+	stencilComponent.setInput(input, x_max, y_max, z_max);
+	stencilComponent.setMask(mask, MASK_WIDTH, MASK_HEIGHT, MASK_RADIUS);
+	stencilComponent.setCoeff(coeff, 2);
+	stencilComponent.setOutput(output, x_max, y_max, z_max);
+	stencilComponent.setGPUTime(atof(argv[5]));
+	stencilComponent.setGPUThreads(atoi(argv[6]));
+	stencilComponent.setCPUThreads(atoi(argv[7]));
+
+	//t1 = omp_get_wtime();
+	//stencilComponent.runIterator(atoi(argv[4]));
+	stencilComponent.run();
+	//t2 = omp_get_wtime();
+
+	
+	/*cout<<"\n\nRESULTS:"<<endl;
+	for (z = 0; z < z_max; z++){
+		for (y = 0; y < y_max; y++){		
+			for (x = 0; x < x_max; x++){
+	         	//cout<<"("<<x<<","<<y<<","<<z<<")-"<<(z*y_max + y)*x_max + x<<"="<<output[(z*y_max + y)*x_max + x]<<"\t";
+				//cout<<output[(y*y_max + x)*z_max + z]<<"\t";
+				cout<<output[(z*y_max + y)*x_max + x]<<"\t\t";
+			}
+			cout<<endl;
+		}
+		cout<<endl;
+	}*/
+	
+	
+	/*
+	cout<<output[(1*y_max + 1)*x_max + 1]<<endl;
+	nFlops = (double) (x_max-2) * (double) (y_max-2) * (double) (z_max-2) * T_MAX * 8.0;
+    printf ("FLOPs in stencil code:      %e\n", nFlops);    
+	printf ("Time spent in stencil code: %f\n", t2 - t1);
+	printf ("Performance in GFlop/s:     %f\n", nFlops / (1e9 * (t2 -t1)));
+	*/
+	
+	//getchar();
+	
+}
